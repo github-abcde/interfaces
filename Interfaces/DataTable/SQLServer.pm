@@ -1,15 +1,16 @@
-package Interfaces2::DataTable::SQLServer;
+package Interfaces::DataTable::SQLServer;
 # Version 0.2	28-09-2011
 # Copyright (C) OGD 2011
 
 #use Devel::Size;
 use Moose::Role;
-use v5.10;
+use 5.010;
+no if $] >= 5.018, warnings => "experimental"; # Only suppress experimental warnings in Perl 5.18.0 or greater
 use Devel::Peek;
 use MooseX::Method::Signatures;
 
 BEGIN {
-	@Interfaces2::DataTable::SQLServer::methods = qw(ReadData WriteData ReConfigureFromDatabase CreateInsertQuery CreateSelectQuery CreateUpdateQuery CreateTable);
+	@Interfaces::DataTable::SQLServer::methods = qw(ReadData WriteData ReConfigureFromDatabase CreateInsertQuery CreateSelectQuery CreateUpdateQuery CreateTable);
 }
 
 # Scan for roles

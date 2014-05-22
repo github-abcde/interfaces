@@ -1,4 +1,4 @@
-package Interfaces2::Interface;
+package Interfaces::Interface;
 # Version 0.11	30-08-2011
 # Copyright (C) OGD 2011
 
@@ -29,12 +29,12 @@ has 'fieldid'     => (is => 'rw', isa => 'ArrayRef[Int]',          lazy_build =>
 # TODO: Scan the dir for pm's and dynamically apply those roles (instead of the list of 'with' below)
 
 with
-  'Interfaces2::FlatFile' => {
+  'Interfaces::FlatFile' => {
 	alias => {ReadRecord => 'FlatFile_ReadRecord', WriteRecord => 'FlatFile_WriteRecord', ReadData => 'FlatFile_ReadData', WriteData => 'FlatFile_WriteData',},
 	excludes => ['ReadRecord', 'WriteRecord', 'ReadData', 'WriteData',]
 							 };
 with							 
-  'Interfaces2::DelimitedFile' => {
+  'Interfaces::DelimitedFile' => {
 								   alias => {
 											 ReadRecord         => 'DelimitedFile_ReadRecord',
 											 WriteRecord        => 'DelimitedFile_WriteRecord',
@@ -45,7 +45,7 @@ with
 								   excludes => ['ReadRecord', 'WriteRecord', 'ReadData', 'WriteData', 'ConfigureUseInFile',]
 								  };
 with
-  'Interfaces2::ExcelBinary' => {
+  'Interfaces::ExcelBinary' => {
 								 alias => {
 										   ReadRecord         => 'ExcelBinary_ReadRecord',
 										   WriteRecord        => 'ExcelBinary_WriteRecord',
@@ -56,7 +56,7 @@ with
 								 excludes => ['ReadRecord', 'WriteRecord', 'ReadData', 'WriteData', 'ConfigureUseInFile',]
 								};
 with
-  'Interfaces2::DataTable';
+  'Interfaces::DataTable';
 
 {
 	my $meta = __PACKAGE__->meta;

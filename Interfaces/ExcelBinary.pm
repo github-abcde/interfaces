@@ -1,4 +1,4 @@
-package Interfaces2::ExcelBinary;
+package Interfaces::ExcelBinary;
 # Version 0.11	30-08-2011
 # Copyright (C) OGD 2011
 
@@ -19,7 +19,7 @@ has 'ExcelBinary_hr_reversefileindex'	=> (is => 'rw', isa => 'HashRef[Int]', laz
 has 'ExcelBinary_datatypes'				=> (is => 'rw', isa => 'ArrayRef[Int]', lazy_build => 0,);
 
 BEGIN {
-	@Interfaces2::ExcelBinary::methods = qw(ReadRecord WriteRecord ReadData WriteData ConfigureUseInFile);
+	@Interfaces::ExcelBinary::methods = qw(ReadRecord WriteRecord ReadData WriteData ConfigureUseInFile);
 }
 
 # Scan for roles
@@ -70,8 +70,8 @@ after 'Check' => sub {
 	# Init datatypes for speed (saves having to do regexes for each ReadRecord call)
 	foreach my $index (0 .. $#{$self->columns}) {
 		given ($self->datatype->[$index]) {
-			when (/^(CHAR|VARCHAR|DATE|TIME|DATETIME)$/) { $self->{ExcelBinary_datatypes}->[$index] = Interfaces2::DATATYPE_TEXT; }
-			when (/^(TINYINT|SMALLINT|MEDIUMINT|INT|INTEGER|BIGINT|FLOAT|DOUBLE|DECIMAL|NUMERIC)$/) { $self->{ExcelBinary_datatypes}->[$index] = Interfaces2::DATATYPE_NUMERIC; }
+			when (/^(CHAR|VARCHAR|DATE|TIME|DATETIME)$/) { $self->{ExcelBinary_datatypes}->[$index] = Interfaces::DATATYPE_TEXT; }
+			when (/^(TINYINT|SMALLINT|MEDIUMINT|INT|INTEGER|BIGINT|FLOAT|DOUBLE|DECIMAL|NUMERIC)$/) { $self->{ExcelBinary_datatypes}->[$index] = Interfaces::DATATYPE_NUMERIC; }
 			default { $self->{ExcelBinary_datatypes}->[$index] = 0; }
 		}
 	}	
@@ -196,7 +196,7 @@ method ReadData (Str $FileName !, HashRef $hr_options ?) {
 		for (my $CurrentCol = $MinCol ; $CurrentCol <= $MaxCol ; $CurrentCol++) {
 			push (@ExcelHeaders, $WorkSheet->get_cell($MinRow, $CurrentCol)->value);
 		}
-		Interfaces2::ExcelBinary::ConfigureUseInFile($self, \@ExcelHeaders);
+		Interfaces::ExcelBinary::ConfigureUseInFile($self, \@ExcelHeaders);
 		$MinRow++;
 	}
 	

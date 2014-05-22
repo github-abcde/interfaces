@@ -1,4 +1,4 @@
-package Interfaces2::DelimitedFile;
+package Interfaces::DelimitedFile;
 # Version 0.2	29-09-2011
 # previously Copyright (C) OGD 2011
 # previously Copyright (C) THR 2011
@@ -12,7 +12,7 @@ use Moose::Role;    # automatically turns on strict and warnings
 use MooseX::Method::Signatures;
 
 BEGIN {
-	@Interfaces2::DelimitedFile::methods = qw(ReadRecord WriteRecord ReadData WriteData ConfigureUseInFile);
+	@Interfaces::DelimitedFile::methods = qw(ReadRecord WriteRecord ReadData WriteData ConfigureUseInFile);
 }
 
 has 'field_delimiter'  => (is => 'rw', isa => 'Str',  lazy_build => 1,);
@@ -118,16 +118,16 @@ method WriteRecord (HashRef $hr_data !) {
 		if (!defined $self->{DelimitedFile_ar_writemask}->[$index]) {
 			$self->{DelimitedFile_ar_writemask}->[$index] = "%";
 			given ($self->{internal_datatype}->[$index]->{type}) {
-				when (Interfaces2::DATATYPE_TEXT) {
+				when (Interfaces::DATATYPE_TEXT) {
 					$self->{DelimitedFile_ar_writemask}->[$index] .= "s";
 				}
-				when (Interfaces2::DATATYPE_NUMERIC) {
+				when (Interfaces::DATATYPE_NUMERIC) {
 					$self->{DelimitedFile_ar_writemask}->[$index] .= $self->{signed}->[$index] eq 'Y' ? "d" : "u";
 				}
-				when ([ Interfaces2::DATATYPE_FLOATINGPOINT, Interfaces2::DATATYPE_FIXEDPOINT ]) {
+				when ([ Interfaces::DATATYPE_FLOATINGPOINT, Interfaces::DATATYPE_FIXEDPOINT ]) {
 					$self->{DelimitedFile_ar_writemask}->[$index] .= "." . $self->{decimals}->[$index] . "f";
 				}
-				when (Interfaces2::DATATYPE_DATETIME) {
+				when (Interfaces::DATATYPE_DATETIME) {
 					$self->{DelimitedFile_ar_writemask}->[$index] .= "s";
 				}
 				default {
@@ -145,13 +145,13 @@ method WriteRecord (HashRef $hr_data !) {
 			$data[$index] = 'ERROR_NO_WRITE_MASK';
 			next;
 		} else {
-			Carp::carp("Delmitedfile_ar_writemask [" . $self->{DelimitedFile_ar_writemask}->[$index] . "]") if ($Interfaces2::DEBUGMODE);
+			Carp::carp("Delmitedfile_ar_writemask [" . $self->{DelimitedFile_ar_writemask}->[$index] . "]") if ($Interfaces::DEBUGMODE);
 		}
 		my $columnname = $columnnames{$index};
 		my $field_value = (defined $hr_data->{$columnname}) ? $hr_data->{$columnname} : $self->{default}->[$index];
 
 		if (defined $field_value) {
-			if ($self->{internal_datatype}->[$index]->{type} >= Interfaces2::DATATYPE_NUMERIC) { # Numeric with or without decimals
+			if ($self->{internal_datatype}->[$index]->{type} >= Interfaces::DATATYPE_NUMERIC) { # Numeric with or without decimals
 				# MinMax boundary check and fix
 #print("Pre-minmax [$field_value]\n");
 				$field_value = $self->minmax($index, $field_value);
@@ -235,7 +235,7 @@ method ReadRecord (Str $inputstring !) {
 			}
 		} ## end else [ if ($inputstring =~ /^"/)]
 		if ($output_column_index >= 0) {
-			if ($self->{internal_datatype}->[$output_column_index]->{type} >= Interfaces2::DATATYPE_NUMERIC) {
+			if ($self->{internal_datatype}->[$output_column_index]->{type} >= Interfaces::DATATYPE_NUMERIC) {
 				if ($field_value eq '') {
 					$field_value = '0';
 				} elsif ($thousandseparator) {
@@ -246,7 +246,7 @@ method ReadRecord (Str $inputstring !) {
 				}
 				# MinMax boundary check and fix
 				$field_value = $self->minmax($output_column_index, $field_value);
-				if ($CurrentColumnDecimals and $self->{internal_datatype}->[$output_column_index]->{type} > Interfaces2::DATATYPE_NUMERIC) { # Field is a type that has decimals (FLOAT, NUMERIC etc)
+				if ($CurrentColumnDecimals and $self->{internal_datatype}->[$output_column_index]->{type} > Interfaces::DATATYPE_NUMERIC) { # Field is a type that has decimals (FLOAT, NUMERIC etc)
 					# Compensate for decimalseparators other than period, change them to .
 					if (not $field_value =~ s/\Q${decimalseparator}\E/\./ and not index($field_value, '.') + 1) {
 						# There were no $decimalseparators present and there is no period present in $field_value

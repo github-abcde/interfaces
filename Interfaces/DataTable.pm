@@ -1,4 +1,4 @@
-package Interfaces2::DataTable;
+package Interfaces::DataTable;
 # Version 0.2	28-09-2011
 # Copyright (C) OGD 2011
 
@@ -9,7 +9,7 @@ no if $] >= 5.018, warnings => "experimental"; # Only suppress experimental warn
 use Devel::Peek;
 
 BEGIN {
-	@Interfaces2::DataTable::methods = qw();
+	@Interfaces::DataTable::methods = qw();
 }
 
 has 'indices'       => (is => 'rw', isa => 'Maybe[HashRef[ArrayRef[Str]]]', lazy_build => 1,);

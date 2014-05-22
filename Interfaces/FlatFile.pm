@@ -1,4 +1,4 @@
-package Interfaces2::FlatFile;
+package Interfaces::FlatFile;
 # Version 0.2	29-09-2011
 # previously Copyright (C) OGD 2011
 # previously Copyright (C) THR 2011
@@ -11,7 +11,7 @@ use 5.010;
 no if $] >= 5.018, warnings => "experimental"; # Only suppress experimental warnings in Perl 5.18.0 or greater
 
 BEGIN {
-	@Interfaces2::FlatFile::methods = qw(ReadRecord WriteRecord ReadData WriteData);
+	@Interfaces::FlatFile::methods = qw(ReadRecord WriteRecord ReadData WriteData);
 }
 
 has 'flat_mask'				=> (is => 'rw', isa => 'Str',					lazy_build => 1,);
@@ -128,7 +128,7 @@ method WriteRecord (HashRef $hr_data !, HashRef $hr_options ?) {
 				$flatline_counter = $self->flatfield_start->[$index];
 			}
 			$mask .= '%';
-			if ($self->{internal_datatype}->[$index]->{type} < Interfaces2::DATATYPE_NUMERIC) { # Datatypes stored as text
+			if ($self->{internal_datatype}->[$index]->{type} < Interfaces::DATATYPE_NUMERIC) { # Datatypes stored as text
 				$mask .= "-" . $self->flatfield_length->[$index] . '.' . $self->flatfield_length->[$index] . "s";
 			} elsif ($self->signed->[$index] eq 'Y') {
 				$mask .= "0" . $self->flatfield_length->[$index] . ($] < 5.012 ? "s" : "d");
@@ -145,7 +145,7 @@ method WriteRecord (HashRef $hr_data !, HashRef $hr_options ?) {
 	foreach my $index (@{$self->flat_columns}) {
 		my $datafield;
 		my $columnname = $self->columns->[$index];
-		if ($self->{internal_datatype}->[$index]->{type} < Interfaces2::DATATYPE_NUMERIC) { # Datatypes stored as text
+		if ($self->{internal_datatype}->[$index]->{type} < Interfaces::DATATYPE_NUMERIC) { # Datatypes stored as text
 			# Text
 			$datafield = $hr_data->{$columnname} // $self->default->[$index] // '';
 		} else {
@@ -163,10 +163,10 @@ method WriteRecord (HashRef $hr_data !, HashRef $hr_options ?) {
 				}
 			}
 			given ($self->{internal_datatype}->[$index]->{type}) {
-				when (Interfaces2::DATATYPE_NUMERIC) {
+				when (Interfaces::DATATYPE_NUMERIC) {
 					$datafield = int($datafield); # Truncaten...getallen achter de komma kunnen weg.
 				}
-				when ([ Interfaces2::DATATYPE_FLOATINGPOINT, Interfaces2::DATATYPE_FIXEDPOINT ]) {
+				when ([ Interfaces::DATATYPE_FLOATINGPOINT, Interfaces::DATATYPE_FIXEDPOINT ]) {
 					if (($self->{decimals}->[$index] // 0) > 0) {
 						$datafield *= 10**$self->{decimals}->[$index];
 						# Destroy remaining decimals (not needed, because sprintf("%u" or "%d") doesn't write decimals.
@@ -220,7 +220,7 @@ method ReadRecordUnpack (Str $textinput) {
 			$flatline_counter += $self->flatfield_length->[$index];
 		} ## end for (0 .. $#{$self->columns...})
 		$self->has_flat_mask_unpack($unpack_mask);
-	} ## end if (!defined $Interfaces2::FlatFile::UnpackMask)
+	} ## end if (!defined $Interfaces::FlatFile::UnpackMask)
 	my @datalist = unpack ($self->has_flat_mask_unpack, $textinput);
 	for my $index (0 .. $#{$self->columns}) {
 		$CurrentColumnName     = $self->{columns}->[$index];
@@ -232,7 +232,7 @@ method ReadRecordUnpack (Str $textinput) {
 			next;
 		}
 		my $field_value;
-		if ($self->{internal_datatype}->[$index]->{type} >= Interfaces2::DATATYPE_NUMERIC) {
+		if ($self->{internal_datatype}->[$index]->{type} >= Interfaces::DATATYPE_NUMERIC) {
 			if ($CurrentColumnDecimals == 0) {
 				if ($datalist[0] eq '') {
 					shift(@datalist);
@@ -305,14 +305,14 @@ method ReadRecord (Str $textinput) {
 		if ($field_value eq '') { $field_value = undef; }
 		$current_field_default = $self->{default}->[$index];
 		given ($self->{internal_datatype}->[$index]->{type}) {
-			when (Interfaces2::DATATYPE_TEXT) {
+			when (Interfaces::DATATYPE_TEXT) {
 				$field_value //= "" . $current_field_default;
 			}
-			when (Interfaces2::DATATYPE_NUMERIC) {
+			when (Interfaces::DATATYPE_NUMERIC) {
 				$field_value = defined $field_value ? 0 + $field_value : 0 + $current_field_default;
 				$field_value = $self->minmax($index, $field_value);
 			}
-			when ([Interfaces2::DATATYPE_FLOATINGPOINT, Interfaces2::DATATYPE_FIXEDPOINT]) {
+			when ([Interfaces::DATATYPE_FLOATINGPOINT, Interfaces::DATATYPE_FIXEDPOINT]) {
 #print("Pre-minmax [$field_value] ");
 				if (!defined $field_value) {
 					$field_value = $self->minmax($index, 0 + $current_field_default);
