@@ -1,13 +1,5 @@
-Perl Interfaces module. A dynamically extendable module that can interface with various file/database-readers and writers.
-Currently implemented:
-  - Fixed width files (Flat files)
-  - Delimited files (RFC 4180 compliant)
-  - XLS files
-  - XLSX files
-  - MySQL tables
-Partly implemented:
-  - XML
-  - JSON
+interfaces
+==========
 
 Currently uses the following Perl modules (haven't separated debugging and release builds yet):
 - Data::Dump
@@ -24,4 +16,3 @@ Currently uses the following Perl modules (haven't separated debugging and relea
 - File::Find::Rule
 
 V2 autodetects and loads additional modules
-
