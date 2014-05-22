@@ -21,3 +21,7 @@ Currently uses the following Perl modules (haven't separated debugging and relea
 - Excel::Writer::xlsx
 - XML::Twig
 - JSON
+- File::Find::Rule
+
+V2 autodetects and loads additional modules
+

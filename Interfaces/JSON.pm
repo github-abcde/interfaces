@@ -1,12 +1,12 @@
 package Interfaces::JSON;
 
-use 5.010;
-use Smart::Comments;
 use Moose::Role;    # automatically turns on strict and warnings
+use 5.010;
+no if $] >= 5.018, warnings => "experimental"; # Only suppress experimental warnings in Perl 5.18.0 or greater
+use Smart::Comments;
 use JSON;
 use Scalar::Util;
 use MooseX::Method::Signatures;
-no if $] >= 5.018, warnings => "experimental"; # Only suppress experimental warnings in Perl 5.18.0 or greater
 
 BEGIN {
 	$Interfaces::JSON::VERSION = 1.00; # 11-02-2014
