@@ -1648,9 +1648,9 @@ if (-e $hr_testfiles->{delimited}) {
 	ok(!defined $error, 'DelimitedFile: Read data');
 	is(@{$ar_data}, 4070, 'DelimitedFile: 4070 Records read');
 	# A few record tests:
-	is_deeply( { quote_date => "2011-01-03 11:03:00", price => 0.575, unknown => 261844, ask => 0.610, ask_size => 2500, bid => 0.570, bid_size => 2500 }, $ar_data->[41], 'Record 41 data validity');
-	is_deeply( { quote_date => "2011-01-04 09:30:00", price => 0.580, unknown => 2500, ask => 0.000, ask_size => 0, bid => 0.000, bid_size => 0 }, $ar_data->[144], 'Record 144 data validity');
-	is_deeply( { quote_date => "2011-02-23 14:37:00", price => 0.440, unknown => 111281, ask => 2.200, ask_size => 500, bid => 0.200, bid_size => 5000 }, $ar_data->[1269], 'Record 1269 data validity');
+	is_deeply( { quote_date => "2011-01-03 11:03:00", price => '0.575', unknown => 261844, ask => '0.610', ask_size => 2500, bid => '0.570', bid_size => 2500 }, $ar_data->[41], 'Record 41 data validity');
+	is_deeply( { quote_date => "2011-01-04 09:30:00", price => '0.580', unknown => 2500, ask => '0.000', ask_size => 0, bid => '0.000', bid_size => 0 }, $ar_data->[144], 'Record 144 data validity');
+	is_deeply( { quote_date => "2011-02-23 14:37:00", price => '0.440', unknown => 111281, ask => '2.200', ask_size => 500, bid => '0.200', bid_size => 5000 }, $ar_data->[1269], 'Record 1269 data validity');
 } else {
 	print("Testfile for delimited data [$hr_testfiles->{delimited}] does not exist, tests skipped\n");
 }
