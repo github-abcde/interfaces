@@ -9,10 +9,10 @@ use v5.10.0;
 no if $] >= 5.018, warnings => "experimental"; # Only suppress experimental warnings in Perl 5.18.0 or greater
 
 # Test 1: Module inclusion
-BEGIN { no strict; use_ok(Interfaces); use strict; }
+BEGIN { no strict; use_ok(Interfaces::Interface); use strict; }
 
-my $OVERFLOW_METHOD_TRUNC = $Interfaces::OVERFLOW_METHOD_TRUNC;
-my $OVERFLOW_METHOD_ROUND = $Interfaces::OVERFLOW_METHOD_ROUND;
+my $OVERFLOW_METHOD_TRUNC = $Interfaces::Interface::OVERFLOW_METHOD_TRUNC;
+my $OVERFLOW_METHOD_ROUND = $Interfaces::Interface::OVERFLOW_METHOD_ROUND;
 
 # Testfiles for various interfaces
 my $hr_testfiles = {
@@ -24,7 +24,7 @@ my $hr_testfiles = {
 
 # Test 2: Object creation
 no strict;
-my $interface = new_ok(Interfaces);
+my $interface = new_ok(Interfaces::Interface);
 use strict;
 
 # Test single interactions

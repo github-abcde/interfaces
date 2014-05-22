@@ -1,351 +1,297 @@
 package Interfaces::FlatFile;
 
+use Smart::Comments;
 use Moose::Role;
-use 5.010;
-no if $] >= 5.018, warnings => "experimental"; # Only suppress experimental warnings in Perl 5.18.0 or greater
 use MooseX::Method::Signatures;
 use Encode;
+use v5.10;
+no if $] >= 5.018, warnings => "experimental"; # Only suppress experimental warnings in Perl 5.18.0 or greater
 
 BEGIN {
-	@Interfaces::FlatFile::methods = qw(ReadRecord WriteRecord ReadData WriteData);
+	$Interfaces::FlatFile::VERSION = '1.2.0'; # 6-02-2013
+	# 1.1.1	08-03-2012	HB	WriteRecord aangepast zodat deze met mask %-x.xs print ipv %-xs  (met x = lengte van het veld)
+	# 1.2.0	06-02-2013	HB	Geoptimaliseerd, datatypes, recordlength als attribuut toegevoegd.
 }
 
-has 'flat_mask'				=> (is => 'rw', isa => 'Str',					lazy_build => 1,);
-has 'flat_mask_unpack'		=> (is => 'rw', isa => 'Str',					lazy_build => 1,);
-has 'flat_columns'			=> (is => 'rw', isa => 'ArrayRef[Int]',		lazy_build => 1,);
-has 'flatfield_start'		=> (is => 'rw', isa => 'ArrayRef[Maybe[Int]]',	lazy_build => 1,);
-has 'flatfield_length'		=> (is => 'rw', isa => 'ArrayRef[Maybe[Int]]',	lazy_build => 1,);
-has 'internal_datatype'	=> (is => 'rw', isa => 'ArrayRef[Int]',		lazy_build => 0,);
-has 'FlatFile_recordlength'	=> (is => 'rw', isa => 'Maybe[Int]',			lazy_build => 1,);	
-
-# Scan for roles
-BEGIN {
-	no strict;
-	my ($package_fqpn, $package_this, $package_aspath) = (__PACKAGE__)x3;
-	$package_aspath =~ s'::'/'g;
-	$package_this =~ s/^.*::([^:]*)$/$1/;
-	my (undef, $include_dir, $package_pm) = File::Spec->splitpath($INC{$package_aspath . '.pm'});
-	my @subroles;
-	if (-d $include_dir . $package_this ) {
-		@subroles = File::Find::Rule->file()->maxdepth(1)->name('*.pm')->relative->in($include_dir . $package_this);
-		foreach my $subrole (@subroles) {
-			require $package_aspath . '/' . $subrole;
-			$subrole =~ s/\.pm//; # Remove .pm
-			# Store the subrole's exported aliases in a fully qualified hash with the fully qualified subrole as key
-			# We can't apply the role here in case the subrole modifies methods (not yet) declared in this role
-			${$package_fqpn . '::subroles'}->{$package_fqpn . '::' . $subrole} = ${$package_fqpn . '::' . $subrole . '::aliases'};
-		}
-	}
-	# Export own aliases
-	foreach my $alias (@{$package_fqpn . '::methods'}) {
-		${$package_fqpn . '::aliases'}->{-alias}->{$alias} = $package_this . '_' . $alias;
-		push(@{${$package_fqpn . '::aliases'}->{-excludes}}, $alias);
-	}
-	use strict;
-}
-
-INIT {
-	no strict;
-	foreach my $subrole_fqpn (keys %{${__PACKAGE__ . '::subroles'}}) {
-		# Apply the role, using the exported aliases from the subrole
-		with $subrole_fqpn => ${__PACKAGE__ . '::subroles'}->{$subrole_fqpn};
-	}
-}
-
-use strict;
-
-#requires qw(columns datatype decimals signed allownull default decimalseparator thousandseparator);
+has 'flat_mask'        		=> (is => 'rw', isa => 'Str',                  lazy_build => 1,);
+has 'flat_columns'     		=> (is => 'rw', isa => 'ArrayRef[Int]',        lazy_build => 1,);
+has 'flatfield_start'  		=> (is => 'rw', isa => 'ArrayRef[Maybe[Int]]', lazy_build => 1,);
+has 'flatfield_length' 		=> (is => 'rw', isa => 'ArrayRef[Maybe[Int]]', lazy_build => 1,);
+has 'FlatFile_recordlength'	=> (is => 'rw', isa => 'Maybe[Int]',			lazy_build => 1,);
+has 'explicit_numeric_separators'	=> (is => 'rw', isa => 'Bool',			lazy_build => 1,);
 
 after 'BUILD' => sub {
-	my $self    = shift;
-	my $hr_args = shift;
-	# Initialize default values if not better left at undef
-};
-
-after 'Check' => sub {
 	my $self = shift;
-	print ("Checking Flatfile constraints [" . $self->name . "]...");
-
-	my $previousfield;
-	# Search first flatfield
-	for (0 .. $#{$self->columns}) {
-		if (defined $self->flatfield_start->[$_]) { $previousfield = $_; last; }
-	}
-	if (!defined $previousfield) { return; }    # Interface does not contain flatfields
-	for (1 .. $#{$self->columns}) {
-		# Skip check for fields we're not going to use due to not being (fully) configured.
-		if (!(defined $self->flatfield_start->[$_] and defined $self->flatfield_length->[$_])) {
-			next;
-		}
-		if ($self->flatfield_start->[$_] <= $self->flatfield_start->[$previousfield]) {
-			Carp::confess("Flatfield_start is not always increasing: Column [" . $self->columns->[$_] . "] doesn't start after [" . $self->columns->[$previousfield] . "]");
-		}
-		if ($self->flatfield_start->[$_] < $self->flatfield_start->[$previousfield] + $self->flatfield_length->[$previousfield]) {
-			Carp::confess("Flatfields [" . $self->columns->[$previousfield] . "] and [" . $self->columns->[$_] . "] overlap");
-		}
-		$previousfield = $_;
-	} 
-	print ("[OK]\n");
+	$self->explicit_numeric_separators(0);
 };
 
 after 'ReConfigureFromHash' => sub {
 	my $self = shift;
+	$self->explicit_numeric_separators(0);
 	$self->clear_flat_mask;
 };
 
-method WriteRecord (HashRef $hr_data !, HashRef $hr_options ?) {
-	if (defined $hr_options and defined $hr_options->{encoding_out} and !defined $hr_options->{encoding_in}) {
-		Carp::confess "encoding_out supplied without encoding_in."
+after 'AddField' => sub {
+	my $self = shift;
+	my ($hr_config) = @_;
+	$self->clear_flat_mask;
+};
+
+
+after 'Check' => sub {
+	my $self = shift;
+	my $previousfield = undef;
+	# Order the flatfields by flatfield_start
+	my @fields_ordered = sort { $self->flatfield_start->[$a] <=> $self->flatfield_start->[$b] } grep { defined $self->flatfield_start->[$_] && defined $self->flatfield_length->[$_]; } (0 .. $#{$self->columns});
+	for (@fields_ordered) {
+		if (defined $self->flatfield_start->[$_]) { $previousfield = $_; last; }
 	}
-	my $mask = "";
-	my @data;
+	if (!defined $previousfield) { return; }    # Interface does not contain flatfields
+	for (@fields_ordered) {
+		# Skip check for fields we're not going to use due to not being (fully) configured.
+		if (!(defined $self->flatfield_start->[$_] && defined $self->flatfield_length->[$_])) {
+			next;
+		}
+		if (defined $previousfield && $previousfield != $_) {
+			if ($self->flatfield_start->[$_] <= $self->flatfield_start->[$previousfield]) {
+				Interfaces::Interface::Crash("Flatfield_start is not always increasing: Column [" . $self->columns->[$_] . "] doesn't start after [" . $self->columns->[$previousfield] . "]");
+			}
+			if ($self->flatfield_start->[$_] < $self->flatfield_start->[$previousfield] + $self->flatfield_length->[$previousfield]) {
+				Interfaces::Interface::Crash('Interface [' . $self->name . ']: ' . 
+						'Flatfields [' . $self->columns->[$previousfield] . '] (' . $self->flatfield_start->[$previousfield] . '/' . $self->flatfield_length->[$previousfield] . ') ' . 
+						'and [' . $self->columns->[$_] . '] (' . $self->flatfield_start->[$_] . ') overlap');
+			}
+		}
+		$previousfield = $_;
+	} ## end for (1 .. $#{$self->columns...
+	1;
+};
+
+method generate_flat_mask() {
+	$self->clear_flat_columns;
+	my $ar_flat_columns = [];
 	my $flatline_counter = 0;
+	my $mask = "";
+	foreach my $index (0 .. $#{$self->{columns}}) {
+		if (!(defined $self->{flatfield_start}->[$index] && defined $self->{flatfield_length}->[$index])) {
+			# Field is missing interface_start, interface_length or both, skip it.
+			next;
+		}
+		if ($flatline_counter > $self->{flatfield_start}->[$index]) {
+			Interfaces::Interface::Crash(  "Error in interface ["
+						  . $self->{tablename}
+						  . "]: field ["
+						  . $self->{columns}->[$index]
+						  . "] starts at position ["
+						  . $self->{flatfield_start}->[$index]
+						  . "] but we have already [$flatline_counter] bytes of data.");
+		} ## end if ($flatline_counter ...
+		if ($flatline_counter < $self->{flatfield_start}->[$index]) {
+			# Defined fields are non-contiguous, inserting filler
+			$mask .= " " x ($self->{flatfield_start}->[$index] - $flatline_counter);
+			$flatline_counter = $self->{flatfield_start}->[$index];
+		}
+		$mask .= '%';
+		if ($self->{internal_datatype}->[$index] == $Interfaces::Interface::DATATYPE_TEXT) {
+			$mask .= "-" . $self->{flatfield_length}->[$index] . '.' . $self->{flatfield_length}->[$index] . "s";
+		} elsif ($self->{signed}->[$index]) {
+			$mask .= "0" . $self->{flatfield_length}->[$index] . ($] < 5.012 ? "s" : "d");
+		} else {
+			$mask .= "0" . $self->{flatfield_length}->[$index] . ($] < 5.012 ? "s" : "u");
+		}
+		$flatline_counter += $self->{flatfield_length}->[$index];
+		push(@{$ar_flat_columns}, $index);
+	} ## end for (0 .. $#{$self->columns...
+	$self->flat_mask($mask);
+	$self->flat_columns($ar_flat_columns);
+}
+
+# Options consist of:
+# encoding_in	=> <value>		Where <value> is any valid value in http://search.cpan.org/dist/Encode/lib/Encode/Supported.pod. Determines the input encoding, does nothing without encoding_out
+# encoding_out	=> <value>		Where <value> is any valid value in http://search.cpan.org/dist/Encode/lib/Encode/Supported.pod. Determines the output encoding, requires encoding_in to be specified as well.
+method WriteRecord(HashRef $hr_data !, HashRef $hr_options ?) {
+	if (defined $hr_options && defined $hr_options->{encoding_out} && !defined $hr_options->{encoding_in}) {
+		Interfaces::Interface::Crash("encoding_out supplied without encoding_in.");
+	}
+	my @data;
 	# Maak printf-mask als deze nog niet bestaat
 	if (!$self->has_flat_mask) {
-		$self->clear_flat_columns;
-		my $ar_flat_columns = [];
-		foreach my $index (0 .. $#{$self->columns}) {
-			if (!(defined $self->flatfield_start->[$index] and defined $self->flatfield_length->[$index])) {
-				# Field is missing interface_start, interface_length or both, skip it.
-				next;
-			}
-			if ($flatline_counter > $self->flatfield_start->[$index]) {
-				Carp::confess(  "Error in interface ["
-							  . $self->tablename
-							  . "]: field ["
-							  . $self->columns->[$index]
-							  . "] starts at position ["
-							  . $self->flatfield_start->[$index]
-							  . "] but we have already [$flatline_counter] bytes of data.");
-			} ## end if ($flatline_counter ...
-			if ($flatline_counter < $self->flatfield_start->[$index]) {
-				# Defined fields are non-contiguous, inserting filler
-				$mask .= " " x ($self->flatfield_start->[$index] - $flatline_counter);
-				$flatline_counter = $self->flatfield_start->[$index];
-			}
-			$mask .= '%';
-			if ($self->{internal_datatype}->[$index]->{type} < Interfaces::DATATYPE_NUMERIC) { # Datatypes stored as text
-				$mask .= "-" . $self->flatfield_length->[$index] . '.' . $self->flatfield_length->[$index] . "s";
-			} elsif ($self->signed->[$index] eq 'Y') {
-				$mask .= "0" . $self->flatfield_length->[$index] . ($] < 5.012 ? "s" : "d");
-			} else {
-				$mask .= "0" . $self->flatfield_length->[$index] . ($] < 5.012 ? "s" : "u");
-			}
-			$flatline_counter += $self->flatfield_length->[$index];
-			push(@{$ar_flat_columns}, $index);
-		} 
-		$self->flat_mask($mask);
-		$self->flat_columns($ar_flat_columns);
-	} 
+		$self->generate_flat_mask;
+	} ## end if (!$self->has_mask)
 	my $evalstring;
-	foreach my $index (@{$self->flat_columns}) {
+	foreach my $index (@{$self->{flat_columns}}) {
 		my $datafield;
-		my $columnname = $self->columns->[$index];
-		if ($self->{internal_datatype}->[$index]->{type} < Interfaces::DATATYPE_NUMERIC) { # Datatypes stored as text
+		my $columnname = $self->{columns}->[$index];
+		if ($self->{internal_datatype}->[$index] == $Interfaces::Interface::DATATYPE_TEXT) {
 			# Text
-			$datafield = $hr_data->{$columnname} // $self->default->[$index] // '';
+			$datafield = $hr_data->{$columnname} // ($self->write_defaultvalues ? $self->{default}->[$index] : '');
 		} else {
 			# Numeric
 			if (($hr_data->{$columnname} // '')  eq '') {
-				$datafield = $self->default->[$index] // 0;
+				$datafield = ($self->write_defaultvalues ? $self->{default}->[$index] : 0);
 			} else {
-				if ($hr_data->{$columnname} =~ /[^-.0-9]/) { # Check if field contains characters not supposed to be present in numeric values
+				if (!$self->{speedy} && $hr_data->{$columnname} =~ /[^-.0-9]/) {
 					Data::Dump::dd($hr_data);
 					print("Column [$index]\n");
-					Carp::confess('Interface [' . $self->name . '] datatype [' . $self->{datatype}->[$index] . '] column [' . $columnname . '] error converting data [' . $hr_data->{$columnname} . ']');
+					Interfaces::Interface::Crash('Interface [' . $self->name . '] datatype [' . $self->datatype->[$index] . '] column [' . $columnname . '] error converting data [' . $hr_data->{$columnname} . ']');
 				} else {
-					# MinMax boundary check and fix
-					$datafield = 0 + $self->minmax($index, $hr_data->{$columnname});
+					$datafield = $hr_data->{$columnname};
 				}
 			}
-			given ($self->{internal_datatype}->[$index]->{type}) {
-				when (Interfaces::DATATYPE_NUMERIC) {
-					$datafield = int($datafield); # Truncaten...getallen achter de komma kunnen weg.
+			if (!$self->{speedy} && defined $datafield) {
+				$datafield = $self->minmax($index, $datafield);
+			}
+			if (defined $self->{decimals}->[$index] && $self->{decimals}->[$index] > 0) {
+				# DOUBLE, FLOAT, DECIMAL
+				$datafield *= 10**$self->{decimals}->[$index];
+				if ($self->{signed}->[$index] and $datafield < 0) {
+					$datafield -= 10**-($self->{decimals}->[$index]); # For fixing floating-point errors (4.06 -> 4.06) without fear of changing the outcome.
+				} else {
+					$datafield += 10**-($self->{decimals}->[$index]); # For fixing floating-point errors (4.06 -> 4.06) without fear of changing the outcome.
 				}
-				when ([ Interfaces::DATATYPE_FLOATINGPOINT, Interfaces::DATATYPE_FIXEDPOINT ]) {
-					if (($self->{decimals}->[$index] // 0) > 0) {
-						$datafield *= 10**$self->{decimals}->[$index];
-						# Destroy remaining decimals (not needed, because sprintf("%u" or "%d") doesn't write decimals.
-						# But only v5.012+ because before that we're using %s to print
-						if ($] < 5.012) {
-							$datafield = int($datafield);
-						}
-					}
+				# Destroy remaining decimals (not needed, because sprintf("%u" or "%d") doesn't write decimals.
+				# But only v5.012+ because before that we're using %s to print
+				if ($] < 5.012) {
+					$datafield = int($datafield);
 				}
+			} else {
+				# TINYINT, SMALLINT, MEDIUMINT, INT, INTEGER, BIGINT
+				$datafield = int($datafield); # Truncaten...getallen achter de komma kunnen weg.
 			}
 		}
 		# If output-encoding is supplied, encode it
-		if (defined $hr_options and defined $hr_options->{encoding_in} and defined $hr_options->{encoding_out}) {
+		if (defined $hr_options && defined $hr_options->{encoding_in} && defined $hr_options->{encoding_out}) {
 			$datafield = Encode::encode($hr_options->{encoding_out}, Encode::decode($hr_options->{encoding_in}, $datafield));
 		}
 		# Truncate field to maximum allowed length
-		$datafield = substr($datafield, 0, $self->flatfield_length->[$index]);
+		#$datafield = substr($datafield, 0, $self->flatfield_length->[$index]);
 		push(@data, $datafield);
-	} 
-	return sprintf ($self->flat_mask, @data);
-} ## end sub WriteRecord 
+	} ## end for (0 .. $#{$self->columns...
+	return sprintf ($self->{flat_mask}, @data);
+} ## end sub WriteRecord ($$)
 
-# ReadRecordUnpack ($self, $textinput)
-# Parses $textinput using unpack and returns $hr_data
-method ReadRecordUnpack (Str $textinput) {
-	my $hr_returnvalue = {};
-	my ($CurrentColumnName, $CurrentColumnValue, $CurrentColumnDecimals, $unpack_mask);
-	if (! $self->has_flat_mask_unpack) {
-		# Build unpackmask
-		my $flatline_counter = 0;
-		for my $index (0 .. $#{$self->columns}) {
-			if (!(defined $self->flatfield_start->[$index] and defined $self->flatfield_length->[$index])) {
-				# Field is missing interface_start, interface_length or both, skip it.
-				next;
-			}
-			if ($flatline_counter > $self->flatfield_start->[$index]) {
-				Carp::confess(  "Error in interface ["
-							  . $self->name
-							  . "]: field ["
-							  . $self->columns->[$index]
-							  . "] starts at position ["
-							  . $self->flatfield_start->[$index]
-							  . "] but we have already [$flatline_counter] bytes of data.");
-			} ## end if ($flatline_counter ...)
-			if ($flatline_counter < $self->flatfield_start->[$index]) {
-				# Defined fields are non-contiguous, inserting filler
-				$unpack_mask .= 'x' . ($self->flatfield_start->[$index] - $flatline_counter);
-				$flatline_counter = $self->flatfield_start->[$index];
-			}
-			$unpack_mask .= "A" . $self->flatfield_length->[$index];
-			$flatline_counter += $self->flatfield_length->[$index];
-		} ## end for (0 .. $#{$self->columns...})
-		$self->has_flat_mask_unpack($unpack_mask);
-	} ## end if (!defined $Interfaces::FlatFile::UnpackMask)
-	my @datalist = unpack ($self->has_flat_mask_unpack, $textinput);
-	for my $index (0 .. $#{$self->columns}) {
-		$CurrentColumnName     = $self->{columns}->[$index];
-		$CurrentColumnDecimals = $self->{decimals}->[$index];
-		undef $CurrentColumnValue;
-		if (!(defined $self->{flatfield_start}->[$index] and defined $self->{flatfield_length}->[$index])) {
-			# Field is missing interface_start, interface_length or both, skip it.
-			#Carp::carp("Field [$CurrentColumnName] is missing flatfield_start, flatfield_length or both, skip it.");
-			next;
-		}
-		my $field_value;
-		if ($self->{internal_datatype}->[$index]->{type} >= Interfaces::DATATYPE_NUMERIC) {
-			if ($CurrentColumnDecimals == 0) {
-				if ($datalist[0] eq '') {
-					shift(@datalist);
-					$field_value = 0;
-				} else {
-					$field_value = 0 + shift(@datalist);
-					# MinMax boundary check and fix
-					$field_value = $self->minmax($index, $field_value);
-				}
-			} else {
-				# Remove leading zeroes
-				$field_value =~ s/^0*//;
-				# Insert period
-				if (length ($field_value) <= $CurrentColumnDecimals) {
-					$field_value = '0.' . '0' x ($CurrentColumnDecimals - length ($field_value)) . $field_value;
-				} else {
-					$field_value =~ s/([0-9]{$CurrentColumnDecimals})$/\.$1/;
-				}
-			}
-		} else {
-			$field_value = shift(@datalist);
-			s/^(\s*)(.*?)(\s*)$/$2/ for $field_value; # Trim whitespace 
-			# Fill empty fields with that field's default value, if such a value is defined
-			if ($field_value eq '') {
-				$field_value = $self->{default}->[$index];
-			} 
-		} 
-		$hr_returnvalue->{$CurrentColumnName} = $field_value;
-	} 
-	return $hr_returnvalue;
-} ## end sub ReadRecordUnpack
-
-method ReadRecord (Str $textinput) {
-	if (ref($textinput) ne '') {
-		Carp::confess "1st Argument passed is a reference (expected text)";
-	}
+method ReadRecord(Str $textinput !, HashRef $hr_options ?) {
+	# Default settings
+	$hr_options->{trim} //= 1;
+#Data::Dump::dd("Called with [$textinput]\n");	
 	my $hr_returnvalue = {};
 	my ($current_column_name, $current_field_start, $current_field_length, $current_field_decimals, $current_field_default);
-	my $decimalseparator;
-	if ($self->has_decimalseparator) {
-		$decimalseparator = $self->decimalseparator;
-	} else {
-		$decimalseparator = '.';
-	}
+	my $decimalseparator = $self->has_decimalseparator ? $self->decimalseparator : '.';
+	my $thousandseparator = $self->has_thousandseparator ? $self->thousandseparator : '';
 	# Check if textinput is long enough
-	if (defined $self->{FlatFile_recordlength} and length($textinput) < $self->{FlatFile_recordlength}) {
+	if (!$self->{speedy} && defined $self->{FlatFile_recordlength} && length($textinput) < $self->{FlatFile_recordlength}) {
 		Data::Dump::dd($textinput);
-		Carp::confess("field [" . $self->columns->[$_] . "] [" . $self->flatfield_start->[$_] . "," . $self->flatfield_length->[$_] . "] is outside the text inputstring (length [" . length($textinput) . "])");
+		Interfaces::Interface::Crash("field [" . $self->columns->[$_] . "] [" . $self->flatfield_start->[$_] . "," . $self->flatfield_length->[$_] . "] is outside the text inputstring (length [" . length($textinput) . "])");
 	}
 	foreach my $index (0 .. $#{$self->columns}) {
 		my $field_value;
-		$current_column_name = $self->columns->[$index];
-		$current_field_start = $self->flatfield_start->[$index];
-		$current_field_length = $self->flatfield_length->[$index];
-		$current_field_decimals = $self->decimals->[$index];
-		if (!(defined $current_field_start and defined $current_field_length)) {
+		$current_column_name = $self->{columns}->[$index]; # 15.5s for 6704698 calls with proper accessor
+		$current_field_start = $self->{flatfield_start}->[$index]; # 14.1s for 6704698 calls with proper accessor
+		$current_field_length = $self->{flatfield_length}->[$index]; # 15.1s for 6704698 calls with proper accessor
+#print("Processing column [$current_column_name], [$current_field_start - $current_field_length]\n");
+		if (!(defined $current_field_start && defined $current_field_length)) {
 			# Field is missing interface_start, interface_length or both, skip it.
 			#			Carp::carp("Field [$current_column_name] is missing flatfield_start, flatfield_length or both, skip it.");
 			next;
 		}
 		$field_value = substr ($textinput, $current_field_start, $current_field_length);
+		#$field_value =~ s/^([ ]*)(.*?)([ ]*)$/$2/;    # Trim, takes 3.83us/call (38.9s for 23900499 calls)
+		#$field_value = SleLib::trim($field_value);	# Takes 7us/call
 		# The two regexes below took respectively 1us/call and 478ns/call
-		$field_value =~ s/^\s+//;
-		$field_value =~ s/\s+$//;
-		# Controleren of datatypes[] gevuld is.
-		if (!defined $self->{internal_datatype}->[$index]) {
-			Carp::confess("Datatypes not defined huh?");
+		if ($hr_options->{trim}) {
+			$field_value =~ s/^\s+//; # 6592014	18.8s	6592014	6.05s
+			$field_value =~ s/\s+$//; # 6592014	12.8s	6592014	2.71s
+			#$field_value =~ s/^\s*(.*?)\s*$/$1/; # 6592014	61.9s	19776042	28.7s
 		}
-		# Lege velden weggooien.
-		if ($field_value eq '') { $field_value = undef; }
 		$current_field_default = $self->{default}->[$index];
-		given ($self->{internal_datatype}->[$index]->{type}) {
-			when (Interfaces::DATATYPE_TEXT) {
-				$field_value //= "" . $current_field_default;
-			}
-			when (Interfaces::DATATYPE_NUMERIC) {
-				$field_value = defined $field_value ? 0 + $field_value : 0 + $current_field_default;
-				$field_value = $self->minmax($index, $field_value);
-			}
-			when ([Interfaces::DATATYPE_FLOATINGPOINT, Interfaces::DATATYPE_FIXEDPOINT]) {
-#print("Pre-minmax [$field_value] ");
-				if (!defined $field_value) {
-					$field_value = $self->minmax($index, 0 + $current_field_default);
+		# Lege velden weggooien.
+		if ($field_value eq '') {
+			undef $field_value;
+		}
+		if (!defined $field_value) {
+			if (!$self->{allownull}->[$index]) {
+				if (defined $current_field_default) {
+					if ($self->{read_defaultvalues}) {
+						given ($self->{internal_datatype}->[$index]) {
+							when ([$Interfaces::Interface::DATATYPE_TEXT, $Interfaces::Interface::DATATYPE_FIXEDPOINT, $Interfaces::Interface::DATATYPE_FLOATINGPOINT]) {
+								$field_value = sprintf ("%s", $current_field_default);
+							}
+							when ($Interfaces::Interface::DATATYPE_NUMERIC) {
+								$field_value = 0 + $current_field_default;
+							}
+						}
+					}
 				} else {
-					$field_value =~ s/[$decimalseparator]/\./g;                      # Change the decimal-sign to .
-					$field_value /= 10**$current_field_decimals;
-#print("Post decimalfix [$field_value]\n");
-					$field_value = $self->minmax($index, 0 + $field_value);
-#print("Post [$field_value]\n");
+					Data::Dump::dd($textinput);
+					Interfaces::Interface::Crash('Field [' . $current_column_name . '] requires a value, but has none, and no default value either');
+				}
+			} else {
+				next;
+			}
+		} else {
+			if ($self->{internal_datatype}->[$index] >= $Interfaces::Interface::DATATYPE_NUMERIC) {
+				# Niet-leeg numeriek veld
+				$field_value = 0 + $field_value;
+				if ($field_value eq ($current_field_default // '0') && $self->{allownull}->[$index] && !$self->{read_defaultvalues}) { next; } # Skip numeric fields that equal (default value // 0)
+				# Speedy setting implies the data is neat and tidy and doesn't need correcting
+				if (!$self->{speedy}) {
+					# Check if there are trailing negators, and fix it to be a heading negator
+					if (substr($field_value, -1) eq '-') {
+						#$field_value =~ s/^(.*)-$/-$1/; # 11.2s, 2.67s
+						$field_value = '-' . substr($field_value, 0, -1);
+					}
+				}
+				if ($self->{internal_datatype}->[$index] > $Interfaces::Interface::DATATYPE_NUMERIC) {
+					# Decimaal-correctie toepassen
+					$current_field_decimals = $self->{decimals}->[$index] // 0; # spent 14.0s making 5239806 calls with proper accessor
+					if ($current_field_decimals > 0) {
+						$field_value /= 10**$current_field_decimals;
+					}
+				}
+				if (!$self->{speedy} ) {
+					$field_value = $self->minmax($index, $field_value);
 				}
 			}
 		}
 		$hr_returnvalue->{$current_column_name} = $field_value;
 	} ## end for (0 .. $#{$self->columns...
 	return $hr_returnvalue;
-} ## end sub ReadRecord 
+} ## end sub ReadRecord ($$)
 
 # ReadData ($filename) returns ar_data
-method ReadData (Str $filename !) {
+method ReadData(Str $filename !, HashRef $hr_options ?) {
 	my $ar_returnvalue = [];
-	open (FLATFILE, '<', $filename) or (Carp::confess("Cannot open file [$filename]: $!") and return);
-	while (<FLATFILE>) {
+	$hr_options //= {};
+	if (!-e "$filename") {
+		Carp::carp("File [$filename] does not exist");
+		return;
+	}
+	# Determine required length of input records
+	my $lastindex = $#{$self->columns};
+	$self->FlatFile_recordlength(List::Util::max(map { ($self->flatfield_start->[$_] // 0) + ($self->flatfield_length->[$_] // 0); } (0 .. $lastindex)));
+	open (my $filehandle, '<', $filename) or Interfaces::Interface::Crash("Cannot open file [$filename]");
+	while (<$filehandle>) { ### Reading [===[%]    ]
 		chomp;
-		push (@{$ar_returnvalue}, __PACKAGE__::ReadRecordUnpack($self, $_));
+		push (@{$ar_returnvalue}, Interfaces::FlatFile::ReadRecord($self, $_, $hr_options));
 	}
-	close (FLATFILE);
+	close ($filehandle);
 	return $ar_returnvalue;
-} ## end sub ReadData 
+} ## end sub ReadData ($$)
 
-# WriteData ($filename, $ar_data)
-method WriteData (Str $filename !, ArrayRef $ar_data !) {
-	open (FLATFILE, '>', $filename) or (Carp::confess("Cannot open file [$filename]: $!") and return);
-	foreach my $hr_data (@{$ar_data}) {
-		print FLATFILE __PACKAGE__::WriteRecord($self, $hr_data) . "\r\n";
+# WriteData ($filename, $ar_data, $hr_options)
+# Options consist of:	append = 0 | 1 # Append to existing file (default = 0 (overwrite))
+method WriteData(Str $filename !, ArrayRef $ar_data !, HashRef $hr_options ?) {
+	$hr_options->{append} //= 0; # Default
+	my $filemode = '>';
+	if ($hr_options->{append}) {
+		$filemode .= '>';
 	}
-	close (FLATFILE);
-} ## end sub WriteData
+	open (my $filehandle, $filemode, $filename) or Interfaces::Interface::Crash("Cannot open file [$filename]");
+	foreach my $hr_data (@{$ar_data}) { ### Writing [===[%]    ]
+		print $filehandle Interfaces::FlatFile::WriteRecord($self, $hr_data) . $/;
+	}
+	close ($filehandle);
+} ## end sub WriteData($$$)
 
 1;
 
@@ -355,15 +301,15 @@ Interfaces::FlatFile - FlatFile format extension to Interfaces::Interface
 
 =head1 VERSION
 
-This document refers to Interfaces::FlatFile version 0.10.
+This document refers to Interfaces::FlatFile version 1.0.0.
 
 =head1 SYNOPSIS
 
   use Interfaces::Interface;
   my $interface = Interfaces::Interface->new();
   $interface->ReConfigureFromHash($hr_config);
-  my $ar_data = $interface->ReadData("foobar.txt");
-  $interface->WriteData("foobar.txt", $ar_data);
+  my $ar_data = $interface->FlatFile_ReadData("foobar.txt");
+  $interface->FlatFile_WriteData("foobar.txt", $ar_data);
 
 =head1 DESCRIPTION
 
@@ -393,13 +339,8 @@ Contains, per column, the length (in bytes) of the data for this column.
 
 =item * C<$interface-E<gt>ReadRecord($line_of_text);>
 
-Parses the supplied line of text as a fixed-length record using substr. Returns a hashref with the data with the 
+Parses the supplied line of text as a fixed-length record. Returns an hashref with the data with the 
 columnnames as key.
-
-=item * C<$interface-E<gt>ReadRecordUnpack($line_of_text);>
-
-Parses the supplied line of text as a fixed-length record using unpack. Returns a hashref with the data
-with the columnnames as key.
 
 =item * C<$interface-E<gt>WriteRecord($hr_data);>
 
@@ -409,18 +350,19 @@ fixed-length encoded data.
 =item * C<$interface-E<gt>ReadData($fullpath_to_file);>
 
 Reads the given file, decodes it and returns its data as an arrayref with a hashref per datarecord.
-It is assumed that a LF or a CRLF seperates records.
+The special variable $/ (or $INPUT_RECORD_SEPARATOR) can be changed to a different input record separator
+should that be required.
 
 =item * C<$interface-E<gt>WriteData($fullpath_to_file, $ar_data);>
 
 Writes the supplied data in fixed-length format to the given file. If the file already existed, it is
-overwritten, otherwise it is created.
+overwritten, otherwise it is created. Each record is appended with $/ when written to file.
 
 =back
 
 =head1 DEPENDENCIES
 
-L<Interfaces::Interface>, L<Moose> and L<Carp>
+L<Interfaces::Interface>, L<Moose>, L<Carp> and L<Encode>
 
 =head1 AUTHOR
 

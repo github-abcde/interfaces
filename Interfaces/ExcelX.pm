@@ -1,14 +1,14 @@
 package Interfaces::ExcelX;
 # Interfaces with the new excel format (.xlsx)
 
-use Moose::Role;    # automatically turns on strict and warnings
-use 5.010;
-no if $] >= 5.018, warnings => "experimental"; # Only suppress experimental warnings in Perl 5.18.0 or greater
+use v5.10;
 use Smart::Comments;
+use Moose::Role;    # automatically turns on strict and warnings
 use Spreadsheet::XLSX;
 use Excel::Writer::XLSX;
 use List::Util;
 use MooseX::Method::Signatures;
+no if $] >= 5.018, warnings => "experimental"; # Only suppress experimental warnings in Perl 5.18.0 or greater
 
 BEGIN {
 	$Interfaces::ExcelX::VERSION = '1.0.0'; # 03-01-2012
