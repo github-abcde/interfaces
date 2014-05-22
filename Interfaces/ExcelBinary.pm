@@ -1,7 +1,4 @@
 package Interfaces::ExcelBinary;
-# Version 0.11	30-08-2011
-# Copyright (C) OGD 2011
-
 # Interfaces with the BIFF-excel format (.xls)
 
 use 5.010;

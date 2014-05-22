@@ -1,6 +1,4 @@
 package Interfaces::Interface;
-# Version 0.11	30-08-2011
-# Copyright (C) OGD 2011
 
 use Moose;    # automatically turns on strict and warnings
 use 5.010;

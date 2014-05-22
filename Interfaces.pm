@@ -1,7 +1,4 @@
 package Interfaces;
-# Version 0.11	30-08-2011
-# previously Copyright (C) THR 2011
-# Copyright released by THR in 2013
 
 use Moose;    # automatically turns on strict and warnings
 use 5.010;

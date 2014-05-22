@@ -1,6 +1,4 @@
 package Interfaces::DataTable::SQLServer;
-# Version 0.2	28-09-2011
-# Copyright (C) OGD 2011
 
 #use Devel::Size;
 use Moose::Role;

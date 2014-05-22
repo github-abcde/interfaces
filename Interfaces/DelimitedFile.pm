@@ -1,8 +1,4 @@
 package Interfaces::DelimitedFile;
-# Version 0.2	29-09-2011
-# previously Copyright (C) OGD 2011
-# previously Copyright (C) THR 2011
-# Copyright released by THR in 2013
 
 # RFC 4180-compliant.
 use 5.010;
