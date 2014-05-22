@@ -1,32 +1,60 @@
-package Interfaces::XMLFile;
+package Interfaces2::XMLFile;
 
 use 5.010;
-use Smart::Comments;
 use Moose::Role;    # automatically turns on strict and warnings
 use XML::Twig;
-use Scalar::Util;
 use MooseX::Method::Signatures;
-no if $] >= 5.018, warnings => "experimental"; # Only suppress experimental warnings in Perl 5.18.0 or greater
 
 BEGIN {
 	$Interfaces::XMLFile::VERSION = 1.00; # 27-11-2013
 }
 
-has 'XMLFile_ar_useinfile'	=> (is => 'rw', isa => 'ArrayRef[Int]', lazy_build => 1,);
-has 'XMLFile_hr_columns'	=> (is => 'rw', isa => 'HashRef[Int]', lazy_build => 1,);
-has 'XMLFile_fieldmask' 	=> (is => 'rw', isa => 'HashRef[Str]', lazy_build => 1,);
-has 'XMLFile_root_tag'		=> (is => 'rw', isa => 'Str', lazy_build => 1,);
-has 'XMLFile_item_tag'		=> (is => 'rw', isa => 'Str', lazy_build => 1,);
-has 'XMLFile_ar_writemask'	=> (is => 'rw', isa => 'Str', lazy_build => 0, clearer => 'clear_XMLFile_ar_writemask');
+has 'XMLFile_ar_useinfile' => (is => 'rw', isa => 'ArrayRef[Int]', lazy_build => 1,);
+has 'XMLFile_hr_columns' => (is => 'rw', isa => 'HashRef[Int]', lazy_build => 1,);
+has 'XMLFile_datatypes' => (is => 'rw', isa => 'ArrayRef[Int]', lazy_build => 1,);
+has 'XMLFile_fieldmask' => (is => 'rw', isa => 'HashRef[Str]', lazy_build => 1,);
+has 'data' => (is => 'rw', isa => 'Any', lazy_build => 1,);
+
+# Scan for subroles
+BEGIN {
+	no strict;
+	my ($package_fqpn, $package_this, $package_aspath) = (__PACKAGE__)x3;
+	$package_aspath =~ s'::'/'g;
+	$package_this =~ s/^.*::([^:]*)$/$1/;
+	my (undef, $include_dir, $package_pm) = File::Spec->splitpath($INC{$package_aspath . '.pm'});
+	my @subroles;
+	if (-d $include_dir . $package_this ) {
+		@subroles = File::Find::Rule->file()->maxdepth(1)->name('*.pm')->relative->in($include_dir . $package_this);
+		foreach my $subrole (@subroles) {
+			require $package_aspath . '/' . $subrole;
+			$subrole =~ s/\.pm//; # Remove .pm
+			# Store the subrole's exported aliases in a fully qualified hash with the fully qualified subrole as key
+			# We can't apply the role here in case the subrole modifies methods (not yet) declared in this role
+			${$package_fqpn . '::subroles'}->{$package_fqpn . '::' . $subrole} = ${$package_fqpn . '::' . $subrole . '::aliases'};
+		}
+	}
+	# Export own aliases
+	foreach my $alias (@{$package_fqpn . '::methods'}) {
+		${$package_fqpn . '::aliases'}->{-alias}->{$alias} = $package_this . '_' . $alias;
+		push(@{${$package_fqpn . '::aliases'}->{-excludes}}, $alias);
+	}
+	use strict;
+}
+
+INIT {
+	no strict;
+	foreach my $subrole_fqpn (keys %{${__PACKAGE__ . '::subroles'}}) {
+		# Apply the role, using the exported aliases from the subrole
+		with $subrole_fqpn => ${__PACKAGE__ . '::subroles'}->{$subrole_fqpn};
+	}
+}
+
+use strict;
 
 after 'BUILD' => sub {
 	my $self = shift;
 	# Initialize our own attributes with default values and set all columns with a displayname to be used
 	Interfaces::XMLFile::ConfigureUseInFile($self, $self->displayname());
-	# Other defaults
-	$self->XMLFile_root_tag($self->name // 'root');
-	$self->XMLFile_item_tag('item');
-	$self->{XMLFile_ar_writemask} = [];
 };
 
 after 'Check' => sub {
@@ -35,29 +63,37 @@ after 'Check' => sub {
 	# Check if all fields that are marked with "useinfile" have a displayname
 	for (0 .. $#{$self->columns}) {
 		if ($self->XMLFile_ar_useinfile->[$_] && !($self->displayname->[$_] // "")) {
-			Interfaces::Interface::Crash("XMLFile field [" . $self->columns->[$_] . "] is configured to be used, but has no displayname");
+			Crash("XMLFile field [" . $self->columns->[$_] . "] is configured to be used, but has no displayname");
 		}
 	} ## end for (0 .. $#{$self->columns...
-	if (!$self->has_XMLFile_root_tag) { Interfaces::Interface::Crash('root tag not defined'); }
-	if (!$self->has_XMLFile_item_tag) { Interfaces::Interface::Crash('item tag not defined'); }
 };
 
 after 'ReConfigureFromHash' => sub {
 	my $self = shift;
-	$self->clear_XMLFile_ar_writemask();
 	# Init datatypes for speed (saves having to do regexes for each ReadRecord call)
 	foreach my $index (0 .. $#{$self->columns}) {
+		given ($self->datatype->[$index]) {
+			when (/^(?:CHAR|VARCHAR|DATE|TIME|DATETIME|ENUM)$/x) { $self->{XMLFile_datatypes}->[$index] = $Interfaces::Interface::DATATYPE_TEXT; }
+			when (/^(?:TINYINT|SMALLINT|MEDIUMINT|INT|INTEGER|BIGINT)$/x) { $self->{XMLFile_datatypes}->[$index] = $Interfaces::Interface::DATATYPE_NUMERIC; }
+			when (/^(?:FLOAT|SINGLE|DOUBLE)$/x) { $self->{XMLFile_datatypes}->[$index] = $Interfaces::Interface::DATATYPE_FLOATINGPOINT; }
+			when (/^(?:DECIMAL|NUMERIC)$/x) { $self->{XMLFile_datatypes}->[$index] = $Interfaces::Interface::DATATYPE_FIXEDPOINT; }
+			default { Crash("Datatype [$_] unknown"); }
+		}
 		$self->{XMLFile_hr_columns}->{$self->columns->[$index]} = $index;
 		$self->{XMLFile_ar_useinfile}->[$index] = 1;
 	}
-	# Other defaults
-	$self->XMLFile_root_tag($self->name);
-	$self->XMLFile_item_tag('item');
 };
 
 after 'AddField' => sub {
 	my ($self, $hr_config) = @_;
 	my $last_index = $#{$self->columns};
+	given ($hr_config->{datatype}) {
+		when (/^(?:CHAR|VARCHAR|DATE|TIME|DATETIME)$/x) { $self->{XMLFile_datatypes}->[$last_index] = $Interfaces::Interface::DATATYPE_TEXT; }
+		when (/^(?:TINYINT|SMALLINT|MEDIUMINT|INT|INTEGER|BIGINT)$/x) { $self->{XMLFile_datatypes}->[$last_index] = $Interfaces::Interface::DATATYPE_NUMERIC; }
+		when (/^(?:FLOAT|SINGLE|DOUBLE)$/x) { $self->{XMLFile_datatypes}->[$last_index] = $Interfaces::Interface::DATATYPE_FLOATINGPOINT; }
+		when (/^(?:DECIMAL|NUMERIC)$/x) { $self->{XMLFile_datatypes}->[$last_index] = $Interfaces::Interface::DATATYPE_FIXEDPOINT; }
+		default { Crash("Datatype [$_] unknown"); }
+	}
 	$self->{XMLFile_hr_columns}->{$hr_config->{fieldname}} = $last_index;
 	$self->{XMLFile_ar_useinfile}->[$last_index] = 1;
 };
@@ -78,58 +114,19 @@ sub xml_escape {
 # WriteRecord ($hr_data) returns string
 method WriteRecord(HashRef $hr_data !) {
 	# Filter kolomindices die geen xml_columns hebben
+#print('ar_useinfile: [' . Data::Dump::dump($self->{XMLFile_ar_useinfile}) . "]\r\n");
 	my @process_these_columns = grep { $self->{XMLFile_ar_useinfile}->[$_]; } (0 .. $#{$self->{columns}});
 	my %columnnames = map { $_ => $self->{columns}->[$_]; } @process_these_columns;
-	my $result = "\t<item>\n";
-	# Filter kolomindices die geen XMLFile_ar_useinfile hebben
-	# Maak printf-masks
-	if (scalar grep { !defined $_; } map { $self->{XMLFile_ar_writemask}->[$_]; } @process_these_columns > 0) {
-		for my $index (@process_these_columns) {
-			if (!defined $self->{XMLFile_ar_writemask}->[$index]) {
-				$self->{XMLFile_ar_writemask}->[$index] = "%";
-				given ($self->{internal_datatype}->[$index]) {
-					when ($Interfaces::Interface::DATATYPE_TEXT) {
-						$self->{XMLFile_ar_writemask}->[$index] .= "s";
-					}
-					when ($Interfaces::Interface::DATATYPE_NUMERIC) {
-						$self->{XMLFile_ar_writemask}->[$index] .= $self->{signed}->[$index] == 1 ? "d" : "u";
-					}
-					when ($_ > $Interfaces::Interface::DATATYPE_NUMERIC) {
-						$self->{XMLFile_ar_writemask}->[$index] .= "." . $self->{decimals}->[$index] . "f";
-					}
-					default {
-						$self->{XMLFile_ar_writemask}->[$index] .= "s";
-					}
-				} ## end given
-			}
-		}
-		if (!defined $self->{XMLFile_ar_writemask}) {
-			Interfaces::Interface::Crash("No columns were identified as being used in file (have you forgot to use ConfigureUseInFile?).");
-		}
-	}
+	my $result = "\t<item>\r\n";
+#print("Processing these columns: [" . Data::Dump::dump(@process_these_columns) . "]\n");
+#print("Processing these columnnames: [" . Data::Dump::dump(%columnnames) . "]\n");
 	foreach my $column_index (@process_these_columns) {
-		my $current_column_name = $columnnames{$column_index};
-		my $field_value = $hr_data->{$current_column_name};
-		if (!defined $field_value) {
-			if ($self->{allownull}->[$column_index]) {
-				next;
-			} else {
-				# Required field
-				if ($self->{write_defaultvalues} and defined $self->{default}->[$column_index]) {
-					$field_value = $self->{default}->[$column_index];
-				} else {
-					Interfaces::Interface::Crash('Field [' . $current_column_name . '] requires a value, but has none (write_defaultvalues [' . $self->{write_defaultvalues} . '], default [' . $self->{default}->[$column_index] . "])\n" . Data::Dump::dump($hr_data));
-				}
-			}
-		}
-		my $export_column_name = xml_escape($current_column_name);
-		$result .= "\t\t<" . $export_column_name . '>';
-		if ($self->{internal_datatype}->[$column_index] >= $Interfaces::Interface::DATATYPE_NUMERIC) {
-			$field_value = $self->minmax($column_index, $field_value);
-		}
-		$result .= xml_escape(sprintf($self->{XMLFile_ar_writemask}->[$column_index], $field_value)) . '</' . $export_column_name . ">" . $/;
+		my $CurrentColumnName = $columnnames{$column_index};
+		next if !defined $hr_data->{$CurrentColumnName};
+		my $ExportColumnName = xml_escape($CurrentColumnName);
+		$result .= "\t\t<" . $ExportColumnName . '>' . xml_escape($hr_data->{$CurrentColumnName}) . '</' . $ExportColumnName . ">\r\n";
 	}
-	$result .= "\t</item>" . $/;
+	$result .= "\t</item>\r\n";
 	return $result;
 } ## end sub WriteRecord
 
@@ -142,13 +139,13 @@ method WriteData(Str $filename !, ArrayRef $ar_data !, HashRef $hr_options ?) {
 	$hr_options->{append} //= 0;
 	$hr_options->{encoding} //= 'utf8';
 	my $filehandle;
-	open ($filehandle, '>:' . $hr_options->{encoding}, $filename) or Interfaces::Interface::Crash("Error opening outputfile [$filename]: $!");
-	print $filehandle '<?xml version="1.0" encoding="UTF-8" standalone="no" ?>' . $/;
-	print $filehandle '<' . $self->name . ">" . $/;
-	foreach my $hr_data (@{$ar_data}) { ### Writing [===[%]    ]
+	open ($filehandle, '>:' . $hr_options->{encoding}, $filename) or Crash("Error opening outputfile [$filename]: $!");
+	print $filehandle '<?xml version="1.0" encoding="UTF-8" standalone="no" ?>' . "\r\n";
+	print $filehandle '<' . $self->name . ">\r\n";
+	foreach my $hr_data (@{$ar_data}) {
 		print $filehandle Interfaces::XMLFile::WriteRecord($self, $hr_data);
 	}
-	print $filehandle '</' . $self->name . ">" . $/;
+	print $filehandle '</' . $self->name . ">\r\n";
 	close ($filehandle);
 } ## end sub WriteData ($$$)
 
@@ -156,7 +153,7 @@ method WriteData(Str $filename !, ArrayRef $ar_data !, HashRef $hr_options ?) {
 method ReadRecord($twig, $element) {
 	# Use all columns specified in useinfile
 	my $hr_returnvalue = {};
-	my $decimalseparator = $self->{decimalseparator};
+	my $decimalseparator = $self->{decimalseperator};
 
 	foreach my $child_node ($element->children()) {
 		my $name = $child_node->gi();
@@ -164,34 +161,28 @@ method ReadRecord($twig, $element) {
 		my $field_value = $child_node->text();
 		next if not defined $column_index;
 		my $CurrentColumnDecimals = $self->{decimals}->[$column_index];
-		my $CurrentColumnDatatype = $self->{internal_datatype}->[$column_index];
+		my $CurrentColumnDatatype = $self->{XMLFile_datatypes}->[$column_index];
 		if ($CurrentColumnDatatype >= $Interfaces::Interface::DATATYPE_NUMERIC) {
-			Interfaces::Interface::Crash("Field [$name] does not contain numeric data: [$field_value]\n") if !Scalar::Util::looks_like_number($field_value); #if ($field_value !~ /^[0-9\Q${decimalseparator}\E]*$/x); # Prof: 5239806	29.5s	10479612	11.9s
-			# Check if there are trailing negators, and fix it to be a heading negator
-			if (substr($field_value,-1) eq '-') {
-				#$field_value =~ s/^(.*)-$/-$1/; # 11.2s, 2.67s
-				$field_value = '-' . substr($field_value, 0, -1);
-			} elsif ($field_value eq '') {
+			# Check if field ends with '-', if so, move '-' to start
+			$field_value =~ s/([^ ]*)-$/-$1/x;
+			if ($field_value eq '') {
 				$field_value = '0';
 			}
 			if ($CurrentColumnDatatype > $Interfaces::Interface::DATATYPE_NUMERIC && $CurrentColumnDecimals) { # Field is a type that has decimals (FLOAT, NUMERIC etc)
-				# Compensate for decimalseparators other than period, change them to .
-				if ($decimalseparator ne '.' && !($field_value =~ s/\Q${decimalseparator}\E/./x) || index($field_value, '.') + 1 == 0) {
-					# There were no $decimalseparators present and there is no period present in $field_value
+				# Compensate for decimalseperators other than period, change them to .
+				if ($decimalseparator ne '.' && $field_value !~ s/\Q${decimalseparator}\E/\./x || index($field_value, '.') + 1 > 0) {
+					# There were no $decimalseperators present and there is no period present in $field_value
 					$field_value .= '.';
 				}
 				$field_value = "0$field_value" if substr($field_value, 0, 1) eq '.';
 				$field_value .= '0' x $CurrentColumnDecimals;
 				$field_value =~ s/(\.[0-9]{$CurrentColumnDecimals}).+/$1/x;    # Trim trailing digits to max $CurrentColumnDecimals
 			}
-			# Check if field is numeric
-#print("Field [$name] type [$self->{datatype}->[$column_index]] value [$field_value]\n");
-#Devel::Peek::Dump $field_value;
 			$hr_returnvalue->{$name} = 0 + $field_value;
 		} else {
 			if ($field_value eq '') {
 				# Store default value or undef (if no default value exists)
-				if ($self->read_defaultvalues and defined $self->{default}->[$column_index]) {
+				if (defined $self->{default}->[$column_index]) {
 					$hr_returnvalue->{$name} = $self->{default}->[$column_index];
 				}
 				# else don't store the value at all..saves a key-value pair
@@ -246,7 +237,7 @@ method ReadData(Str $filename !, HashRef $hr_options ?) {
 		},
 	);
 	if (!defined $xml_twig) {
-		Interfaces::Interface::Crash("Error initializing XML parser");
+		Crash("Error initializing XML parser");
 	}
 	$xml_twig->parsefile($filename);
 	return $ar_returnvalue;
@@ -256,30 +247,40 @@ method ReadData(Str $filename !, HashRef $hr_options ?) {
 
 =head1 NAME
 
-Interfaces::XMLFile - XML file format extension to Interfaces::Interface
+Interfaces::DelimitedFile - Delimited file format extension to Interfaces::Interface
 
 =head1 VERSION
 
-This document refers to Interfaces::XMLFile version 1.0.0.
+This document refers to Interfaces::DelimitedFile version 1.0.0.
 
 =head1 SYNOPSIS
 
   use Interfaces::Interface;
   my $interface = Interfaces::Interface->new();
   $interface->ReConfigureFromHash($hr_config);
-  my $ar_data = $interface->DelimitedFile_ReadData("foobar.xml");
-  $interface->DelimitedFile_WriteData("foobar.xml", $ar_data);
+  $interface->delimiter(',');
+  my $ar_data = $interface->DelimitedFile_ReadData("foobar.csv");
+  $interface->DelimitedFile_WriteData("foobar.csv", $ar_data);
 
 =head1 DESCRIPTION
 
 This module extends the Interfaces::Interface with the capabilities to read from - and
-write to files in an XML file.
+write to files in a character or string-delimited file.
 
-=head2 Attributes for C<Interfaces::XMLFile>
+=head2 Attributes for C<Interfaces::DelimitedFile>
 
 =over 4
 
-=head2 Methods for C<Interfaces::XMLFile>
+=item * C<delimiter>
+Contains the field-delimiter character (or string).
+
+=item * C<usedinexcel>
+When importing csv-files into Excel, values can get mangled. In order to prevent this, a workaround
+was implemented to assign "=value" to a field instead of just the value. This works for textfields only.
+
+=back
+
+=head2 Methods for C<Interfaces::DelimitedFile>
 
 =over 4
 
@@ -289,25 +290,33 @@ Supplied an arrayref of strings, matches those with $self->displayname to determ
 the file are to be linked with which columns of the interface. Is automatically called from ReadData,
 but not from ReadRecord.
 
-=item * C<$interface-E<gt>ReadRecord($twig, $element);>
+=item * C<$interface-E<gt>ParseHeaders($headerstring);>
 
-Parses the supplied element node and it's children. Returns an hashref with the data 
-with the columnnames as key. Only reads the columns configured by ConfigureUseInFile.
+Performs an identical function to ConfigureUseInFile, except this takes a string from which it extracts
+the headers.
+
+=item * C<$interface-E<gt>ReadRecord($string);>
+
+Parses the supplied line of text as a character/string-delimited record. Returns an hashref with the data 
+with the columnnames as key. Only reads the columns configured by ConfigureUseInFile or ParseHeaders.
 
 =item * C<$interface-E<gt>WriteRecord($hr_data);>
 
 Converts the supplied hashref datarecord to a line of text. Returns a string of text containing the
-XML data.
+character/string-delimeted data.
 
 =item * C<$interface-E<gt>ReadData($fullpath_to_file);>
 
 Reads the given file and returns its data as an arrayref with a hashref per datarecord.
-If ConfigureUseInFile has not been called before, an initial record with headers is assumed
-present and is parsed.
+If ConfigureUseInFile or ParseHeaders has not been called before, an initial record with headers is assumed
+present and is parsed. The special variable $/ (or $INPUT_RECORD_SEPARATOR) can be changed to a different 
+input record separator should that be required.
 
 =item * C<$interface-E<gt>WriteData($fullpath_to_file, $ar_data, $hr_options);>
 
 Writes the given data to the file specified by $fullpath_to_file.
+Options consist of: header = 0 | 1 (Write a header to the file (default = 1)).
+Each record is appended with $/ when written to file.
 
 =back
 
