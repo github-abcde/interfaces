@@ -5,7 +5,8 @@ package Interfaces2::DelimitedFile;
 # Copyright released by THR in 2013
 
 # RFC 4180-compliant.
-use v5.10;
+use 5.010;
+no if $] >= 5.018, warnings => "experimental"; # Only suppress experimental warnings in Perl 5.18.0 or greater
 #use Devel::Size;
 use Moose::Role;    # automatically turns on strict and warnings
 use MooseX::Method::Signatures;

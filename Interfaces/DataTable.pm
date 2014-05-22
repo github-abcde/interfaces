@@ -4,7 +4,8 @@ package Interfaces2::DataTable;
 
 #use Devel::Size;
 use Moose::Role;
-use v5.10;
+use 5.010;
+no if $] >= 5.018, warnings => "experimental"; # Only suppress experimental warnings in Perl 5.18.0 or greater
 use Devel::Peek;
 
 BEGIN {

@@ -3,7 +3,8 @@ package Interfaces2::Interface;
 # Copyright (C) OGD 2011
 
 use Moose;    # automatically turns on strict and warnings
-use v5.10;
+use 5.010;
+no if $] >= 5.018, warnings => "experimental"; # Only suppress experimental warnings in Perl 5.18.0 or greater
 use MooseX::Method::Signatures;
 
 use Data::Dump;
