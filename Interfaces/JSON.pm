@@ -1,9 +1,9 @@
 package Interfaces::JSON;
 
+use Moose::Role;    # automatically turns on strict and warnings
 use 5.010;
 no if $] >= 5.018, warnings => "experimental"; # Only suppress experimental warnings in Perl 5.18.0 or greater
 use Smart::Comments;
-use Moose::Role;    # automatically turns on strict and warnings
 use JSON;
 use Scalar::Util;
 use MooseX::Method::Signatures;

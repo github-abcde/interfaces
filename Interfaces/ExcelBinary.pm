@@ -1,9 +1,9 @@
 package Interfaces::ExcelBinary;
 # Interfaces with the BIFF-excel format (.xls)
 
+use Moose::Role;    # automatically turns on strict and warnings
 use 5.010;
 no if $] >= 5.018, warnings => "experimental"; # Only suppress experimental warnings in Perl 5.18.0 or greater
-use Moose::Role;    # automatically turns on strict and warnings
 use MooseX::Method::Signatures;
 use Spreadsheet::ParseExcel;
 use Spreadsheet::WriteExcel;

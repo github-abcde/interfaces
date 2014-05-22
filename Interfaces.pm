@@ -17,6 +17,9 @@ use constant DATATYPE_DATETIME => 2;
 use constant DATATYPE_NUMERIC => 16;
 use constant DATATYPE_FLOATINGPOINT => 17;
 use constant DATATYPE_FIXEDPOINT => 18;
+use constant OVERFLOW_METHOD_ERROR => 0;
+use constant OVERFLOW_METHOD_ROUND => 1;
+use constant OVERFLOW_METHOD_TRUNC => 2;
 
 use constant DATATYPES => {
 	CHAR => { type => DATATYPE_TEXT },

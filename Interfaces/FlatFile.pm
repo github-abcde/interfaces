@@ -1,10 +1,10 @@
 package Interfaces::FlatFile;
 
 use Moose::Role;
-use MooseX::Method::Signatures;
-use Encode;
 use 5.010;
 no if $] >= 5.018, warnings => "experimental"; # Only suppress experimental warnings in Perl 5.18.0 or greater
+use MooseX::Method::Signatures;
+use Encode;
 
 BEGIN {
 	@Interfaces::FlatFile::methods = qw(ReadRecord WriteRecord ReadData WriteData);
